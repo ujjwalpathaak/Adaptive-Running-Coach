@@ -22,6 +22,20 @@ const emptySetup = {
   trainingDaysPerWeek: 3,
 }
 
+const MIN_TRAINING_DAYS = 2
+const MAX_TRAINING_DAYS = 7
+const MIN_RACE_DISTANCE_KM = 1
+const MIN_LEAD_DAYS_TO_RACE = 7
+
+function minRaceDateStr(): string {
+  const d = new Date()
+  d.setDate(d.getDate() + MIN_LEAD_DAYS_TO_RACE)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export function Dashboard() {
   const [athlete, setAthlete] = useState<Athlete | null>(null)
   const [plan, setPlan] = useState<TrainingPlan | null>(null)
@@ -70,7 +84,10 @@ export function Dashboard() {
         throw new Error('Enter a valid race goal time as HH:MM')
       }
 
-      const trainingDays = Math.min(7, Math.max(2, Number(setup.trainingDaysPerWeek) || 2))
+      const trainingDays = Math.min(
+        MAX_TRAINING_DAYS,
+        Math.max(MIN_TRAINING_DAYS, Number(setup.trainingDaysPerWeek) || MIN_TRAINING_DAYS),
+      )
       const created = await api.createPlan({
         title: setup.title.trim(),
         raceDistanceKm: Number(setup.raceDistanceKm),
@@ -159,6 +176,26 @@ export function Dashboard() {
             the dashboard; weeks advance toward the goal on Mondays.
           </p>
 
+          <div className="setup-requirements" aria-label="Minimum requirements to start a plan">
+            <p className="setup-requirements__title">Minimum requirements</p>
+            <ul>
+              <li>
+                At least <strong>{MIN_TRAINING_DAYS}</strong> training days per week (up to{' '}
+                {MAX_TRAINING_DAYS})
+              </li>
+              <li>
+                At least <strong>3 Garmin runs of 30+ minutes</strong> on record, so we can read your
+                current fitness
+              </li>
+              <li>Race date at least {MIN_LEAD_DAYS_TO_RACE} days from today</li>
+              <li>Race distance at least {MIN_RACE_DISTANCE_KM} km</li>
+              <li>
+                Goal time must be realistic from your last 3 runs — overly ambitious goals are
+                rejected with guidance
+              </li>
+            </ul>
+          </div>
+
           <form className="setup-form" onSubmit={handleCreatePlan}>
             <label>
               Race / goal title
@@ -175,7 +212,7 @@ export function Dashboard() {
                 Race distance (km)
                 <input
                   type="number"
-                  min={1}
+                  min={MIN_RACE_DISTANCE_KM}
                   step={0.1}
                   value={setup.raceDistanceKm}
                   onChange={(e) => setSetup((s) => ({ ...s, raceDistanceKm: e.target.value }))}
@@ -196,6 +233,7 @@ export function Dashboard() {
               Target race date
               <input
                 type="date"
+                min={minRaceDateStr()}
                 value={setup.targetDate}
                 onChange={(e) => setSetup((s) => ({ ...s, targetDate: e.target.value }))}
                 required
@@ -205,12 +243,15 @@ export function Dashboard() {
               Training days per week
               <input
                 type="number"
-                min={2}
-                max={7}
+                min={MIN_TRAINING_DAYS}
+                max={MAX_TRAINING_DAYS}
                 step={1}
                 value={setup.trainingDaysPerWeek}
                 onChange={(e) =>
-                  setSetup((s) => ({ ...s, trainingDaysPerWeek: Number(e.target.value) || 2 }))
+                  setSetup((s) => ({
+                    ...s,
+                    trainingDaysPerWeek: Number(e.target.value) || MIN_TRAINING_DAYS,
+                  }))
                 }
                 required
               />
@@ -228,6 +269,9 @@ export function Dashboard() {
             <div className="dash__goal-main">
               <p className="dash__eyebrow">
                 Active · {plan.phase} · {plan.fitness.readiness}
+                {plan.progressionFocus
+                  ? ` · week ${plan.weeksSinceStart ?? 0} focus: ${plan.progressionFocus}`
+                  : ''}
               </p>
               <h1 id="goal-heading">{plan.title}</h1>
               <p className="dash__goal-meta">

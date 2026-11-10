@@ -4,13 +4,18 @@ import {
   assessFitness,
   estimateCurrentPaceSecPerKm,
   FITNESS_WINDOW_DAYS,
+  MAX_TRAINING_DAYS_PER_WEEK,
+  MIN_LEAD_DAYS_TO_RACE,
+  MIN_RACE_DISTANCE_KM,
+  MIN_TRAINING_DAYS_PER_WEEK,
   newestRun,
   runsInWindow,
 } from '../engine/fitness.js';
+import { assertGoalFeasible, longestFromRuns } from '../engine/goalFeasibility.js';
 import { dayStamp, matchRunToSession, sessionForDate } from '../engine/matcher.js';
 import { buildPaceBands } from '../engine/paces.js';
 import { daysToRace } from '../engine/phases.js';
-import { buildWeekTowardGoal } from '../engine/progression.js';
+import { buildWeekTowardGoal, resolveProgressionFocus } from '../engine/progression.js';
 import { scoreSession, detectFatigue } from '../engine/scorer.js';
 import {
   addDays,
@@ -34,6 +39,33 @@ const recentSignals: PerformanceSignal[] = [];
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
+}
+
+function median(nums: number[]): number | null {
+  if (nums.length === 0) return null;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/**
+ * Live pace recalibration (practical stand-in for SVGN's periodic retest):
+ * median pace from this week's *completed* easy/long runs, blended 50/50 with
+ * the previously known pace so a single noisy run doesn't swing training bands.
+ */
+function recalibratePace(plan: TrainingPlan): number {
+  const previous = plan.fitness.avgPaceSecPerKm ?? plan.startingPaceSecPerKm ?? plan.paceBands.goalSecPerKm * 1.2;
+  const samples = plan.sessions
+    .filter(
+      (s) =>
+        s.status === 'completed' &&
+        (s.type === 'easy' || s.type === 'long') &&
+        s.lastActualPaceSecPerKm != null,
+    )
+    .map((s) => s.lastActualPaceSecPerKm as number);
+  const fresh = median(samples);
+  if (fresh == null) return Math.round(previous);
+  return Math.round(previous * 0.5 + fresh * 0.5);
 }
 
 function isoDateDaysAgo(days: number): string {
@@ -211,8 +243,15 @@ function rollWeekForward(plan: TrainingPlan): TrainingPlan {
     plan.paceBands.goalSecPerKm * 1.2;
   const startingDays = plan.startingDaysToRace || daysRemaining + 7;
 
+  // Recalibrate from this week's actually-completed easy/long runs before
+  // deciding next week's targets — a practical, continuous stand-in for a
+  // periodic field retest.
+  const recalibratedPace = recalibratePace(plan);
+  const weeksSinceStart = (plan.weeksSinceStart ?? 0) + 1;
+  const focus = resolveProgressionFocus(weeksSinceStart);
+
   const progression = buildWeekTowardGoal({
-    currentPaceSecPerKm: plan.fitness.avgPaceSecPerKm ?? startingPace,
+    currentPaceSecPerKm: recalibratedPace,
     longestRunKm: plan.fitness.longestRunKm,
     typicalSessionKm: plan.fitness.typicalSessionKm ?? 5,
     raceDistanceKm: plan.raceDistanceKm,
@@ -222,6 +261,9 @@ function rollWeekForward(plan: TrainingPlan): TrainingPlan {
     startingDaysToRace: startingDays,
     startingPaceSecPerKm: startingPace,
     readiness,
+    focus,
+    previousVolumeBaselineKm: plan.volumeBaselineKm,
+    previousPaceBlend: plan.lastPaceBlend ?? 0,
   });
 
   const week = buildWeeklyPlan({
@@ -251,16 +293,18 @@ function rollWeekForward(plan: TrainingPlan): TrainingPlan {
     activityId: null,
     mutations: [
       `Rolled week ${plan.weekOf} → ${thisMonday}`,
+      `Cycle focus: ${focus}`,
       `Baseline ${plan.volumeBaselineKm} → ${progression.volumeBaselineKm} km`,
       `Weekly target ${week.weeklyKm} km`,
       `Pace blend ${Math.round(progression.paceBlend * 100)}% toward goal`,
+      `Recalibrated pace ${recalibratedPace}s/km`,
     ],
   };
 
   return {
     ...plan,
     weekOf: thisMonday,
-    focus: `${week.focus} · ${note}`,
+    focus: `${week.focus} · [${focus}] ${note}`,
     sessions: week.sessions,
     weeklyMileageTargetKm: week.weeklyKm,
     volumeBaselineKm: progression.volumeBaselineKm,
@@ -270,11 +314,15 @@ function rollWeekForward(plan: TrainingPlan): TrainingPlan {
     paceBands: progression.paceBands,
     progressiveStreak: readiness === 'progress' ? plan.progressiveStreak + 1 : 0,
     fatigueStreak: readiness === 'ease' ? plan.fatigueStreak + 1 : 0,
+    weeksSinceStart,
+    lastPaceBlend: progression.paceBlend,
+    progressionFocus: focus,
     fitness: {
       ...plan.fitness,
       assessedAt: new Date().toISOString(),
       recentWeeklyKm: progression.volumeBaselineKm,
       typicalSessionKm: plan.fitness.typicalSessionKm ?? progression.minEasyKm,
+      avgPaceSecPerKm: recalibratedPace,
       readiness,
       note,
     },
@@ -304,18 +352,38 @@ export async function createPlan(input: CreatePlanInput): Promise<TrainingPlan> 
   if (!input.targetDate) {
     throw Object.assign(new Error('Target race date is required'), { status: 400 });
   }
-  if (!(input.raceDistanceKm > 0)) {
-    throw Object.assign(new Error('Race distance must be positive'), { status: 400 });
+  if (!(input.raceDistanceKm >= MIN_RACE_DISTANCE_KM)) {
+    throw Object.assign(
+      new Error(`Race distance must be at least ${MIN_RACE_DISTANCE_KM} km`),
+      { status: 400 },
+    );
   }
   if (!(input.raceGoalTimeSec > 0)) {
     throw Object.assign(new Error('Race goal time must be positive'), { status: 400 });
   }
 
   const trainingDays = Number(input.trainingDaysPerWeek);
-  if (!Number.isInteger(trainingDays) || trainingDays < 2 || trainingDays > 7) {
-    throw Object.assign(new Error('Training days must be an integer between 2 and 7'), {
-      status: 400,
-    });
+  if (
+    !Number.isInteger(trainingDays) ||
+    trainingDays < MIN_TRAINING_DAYS_PER_WEEK ||
+    trainingDays > MAX_TRAINING_DAYS_PER_WEEK
+  ) {
+    throw Object.assign(
+      new Error(
+        `Training days must be an integer between ${MIN_TRAINING_DAYS_PER_WEEK} and ${MAX_TRAINING_DAYS_PER_WEEK}`,
+      ),
+      { status: 400 },
+    );
+  }
+
+  const daysUntilRace = daysToRace(input.targetDate);
+  if (daysUntilRace < MIN_LEAD_DAYS_TO_RACE) {
+    throw Object.assign(
+      new Error(
+        `Race date must be at least ${MIN_LEAD_DAYS_TO_RACE} days from today so there's a real week to build (currently ${daysUntilRace} day${daysUntilRace === 1 ? '' : 's'} out).`,
+      ),
+      { status: 400 },
+    );
   }
 
   const runs = await loadRecentGarminRuns(true);
@@ -329,6 +397,21 @@ export async function createPlan(input: CreatePlanInput): Promise<TrainingPlan> 
     throw Object.assign(new Error('Could not read pace from your last 3 runs'), { status: 400 });
   }
 
+  const daysRemaining = daysUntilRace;
+  const longestRunKm = longestFromRuns(runs);
+  const goalCheck = assertGoalFeasible({
+    raceDistanceKm: input.raceDistanceKm,
+    raceGoalTimeSec: input.raceGoalTimeSec,
+    targetDate: input.targetDate,
+    daysToRace: daysRemaining,
+    calibrationRuns: gate.qualifyingRuns,
+    currentPaceSecPerKm,
+    longestRunKm,
+  });
+  if (!goalCheck.ok) {
+    throw Object.assign(new Error(goalCheck.message), { status: 400 });
+  }
+
   // Seed bands from last-3 pace only (progression may nudge slightly for this week)
   const seedBands = buildPaceBands(
     input.raceDistanceKm,
@@ -336,7 +419,6 @@ export async function createPlan(input: CreatePlanInput): Promise<TrainingPlan> 
     currentPaceSecPerKm,
   );
   const fitnessAssess = assessFitness(runs, seedBands, input.raceDistanceKm, trainingDays);
-  const daysRemaining = daysToRace(input.targetDate);
 
   const progression = buildWeekTowardGoal({
     currentPaceSecPerKm,
@@ -349,6 +431,9 @@ export async function createPlan(input: CreatePlanInput): Promise<TrainingPlan> 
     startingDaysToRace: daysRemaining,
     startingPaceSecPerKm: currentPaceSecPerKm,
     readiness: fitnessAssess.readiness,
+    focus: resolveProgressionFocus(0),
+    previousVolumeBaselineKm: fitnessAssess.volumeBaselineKm,
+    previousPaceBlend: 0,
   });
 
   const weekOf = mondayOf();
@@ -403,6 +488,9 @@ export async function createPlan(input: CreatePlanInput): Promise<TrainingPlan> 
     },
     startingPaceSecPerKm: currentPaceSecPerKm,
     startingDaysToRace: daysRemaining,
+    weeksSinceStart: 0,
+    lastPaceBlend: progression.paceBlend,
+    progressionFocus: progression.focus,
   };
 
   recentSignals.length = 0;

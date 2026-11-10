@@ -5,6 +5,7 @@ import type {
   PaceBands,
   PerformanceSignal,
   PlanFitness,
+  ProgressionFocus,
   SyncCursor,
   TrainingPhase,
 } from './engine/types.js';
@@ -16,6 +17,7 @@ export type {
   PaceBands,
   PerformanceSignal,
   PlanFitness,
+  ProgressionFocus,
   SyncCursor,
   TrainingPhase,
 };
@@ -69,6 +71,12 @@ export interface TrainingPlan {
   startingPaceSecPerKm: number | null;
   /** Days-to-race when the plan was created — path length */
   startingDaysToRace: number;
+  /** Weeks rolled since plan creation (0 = creation week) */
+  weeksSinceStart: number;
+  /** Most recently applied pace blend toward goal (0..1) */
+  lastPaceBlend: number;
+  /** Which single variable this week's progression moved (one-at-a-time rhythm) */
+  progressionFocus: ProgressionFocus;
 }
 
 export interface CreatePlanInput {

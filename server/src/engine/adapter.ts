@@ -79,6 +79,7 @@ export function applyProgressiveAdaptation(
           linkedActivityId: score.activityId,
           lastSignal: score.signal,
           lastScoreSummary: score.summary,
+          lastActualPaceSecPerKm: score.actualPaceSecPerKm,
         }
       : s,
   );
@@ -225,6 +226,7 @@ function rebuildWeek(plan: ProgressivePlanMutable, preserveCompleted = false) {
         linkedActivityId: prev.linkedActivityId,
         lastSignal: prev.lastSignal,
         lastScoreSummary: prev.lastScoreSummary,
+        lastActualPaceSecPerKm: prev.lastActualPaceSecPerKm ?? null,
         extras: prev.extras ?? [],
         // keep original prescribed distance if already done
         distanceKm: prev.distanceKm,

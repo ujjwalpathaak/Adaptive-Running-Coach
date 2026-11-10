@@ -43,6 +43,8 @@ export interface SessionPrescription {
   coolDownKm: number
   workDistanceKm: number | null
   reps: number | null
+  repWorkSec?: number | null
+  repRecoverySec?: number | null
   paceBand: PaceBand | null
   notes: string
 }
@@ -99,6 +101,7 @@ export interface PlanSession {
   linkedActivityId?: string | null
   lastSignal?: PerformanceSignal | null
   lastScoreSummary?: string | null
+  lastActualPaceSecPerKm?: number | null
   extras?: ExtraRunEntry[]
 }
 
@@ -140,6 +143,9 @@ export interface TrainingPlan {
   fitness: PlanFitness
   startingPaceSecPerKm?: number | null
   startingDaysToRace?: number
+  weeksSinceStart?: number
+  lastPaceBlend?: number
+  progressionFocus?: 'volume' | 'pace' | 'deload'
 }
 
 export interface CreatePlanInput {

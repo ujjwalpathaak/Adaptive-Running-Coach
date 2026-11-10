@@ -6,6 +6,11 @@ export const MIN_QUALIFYING_RUNS = 3;
 export const MIN_RUN_DURATION_SEC = 30 * 60;
 /** How many most-recent qualifying runs calibrate “current fitness” at plan start */
 export const CALIBRATION_RUN_COUNT = 3;
+/** Minimum days between "today" and the race date, so there's a real week to build */
+export const MIN_LEAD_DAYS_TO_RACE = 7;
+export const MIN_TRAINING_DAYS_PER_WEEK = 2;
+export const MAX_TRAINING_DAYS_PER_WEEK = 7;
+export const MIN_RACE_DISTANCE_KM = 1;
 
 export type FitnessReadiness = 'progress' | 'hold' | 'ease';
 

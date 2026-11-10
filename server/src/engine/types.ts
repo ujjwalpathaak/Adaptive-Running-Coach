@@ -5,7 +5,10 @@ export type SessionType = 'easy' | 'quality' | 'long' | 'rest';
 /** Day outcome on the current week board */
 export type SessionDayStatus = 'scheduled' | 'completed' | 'skipped';
 
-export type QualityStructure = 'tempo' | 'intervals' | 'steady';
+export type QualityStructure = 'fartlek' | 'intervals' | 'threshold' | 'vo2' | 'steady' | 'tempo';
+
+/** One-variable-at-a-time weekly rhythm (3 build weeks : 1 deload). */
+export type ProgressionFocus = 'volume' | 'pace' | 'deload';
 
 export type PerformanceSignal =
   | 'on_track'
@@ -42,6 +45,10 @@ export interface SessionPrescription {
   coolDownKm: number;
   workDistanceKm: number | null;
   reps: number | null;
+  /** Work interval duration for rep-based quality sessions (sec) */
+  repWorkSec: number | null;
+  /** Recovery interval duration between reps (sec) */
+  repRecoverySec: number | null;
   paceBand: PaceBand | null;
   notes: string;
 }
@@ -91,6 +98,8 @@ export interface EngineSession {
   linkedActivityId: string | null;
   lastSignal: PerformanceSignal | null;
   lastScoreSummary: string | null;
+  /** Actual avg pace from the linked run (sec/km) — feeds live pace recalibration */
+  lastActualPaceSecPerKm: number | null;
   /** Unplanned Garmin runs synced onto this calendar day */
   extras: ExtraRunEntry[];
 }
@@ -134,5 +143,7 @@ export interface SessionScore {
   summary: string;
   distancePct: number;
   paceDeltaSec: number | null;
+  /** Actual avg pace of the run (sec/km), when known */
+  actualPaceSecPerKm: number | null;
   details: string[];
 }

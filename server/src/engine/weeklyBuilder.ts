@@ -163,6 +163,7 @@ export function buildWeeklyPlan(input: WeeklyBuildInput): WeeklyBuildResult {
         linkedActivityId: null,
         lastSignal: null,
         lastScoreSummary: null,
+        lastActualPaceSecPerKm: null,
         extras: [],
       };
     }
@@ -194,6 +195,7 @@ export function buildWeeklyPlan(input: WeeklyBuildInput): WeeklyBuildResult {
       linkedActivityId: null,
       lastSignal: null,
       lastScoreSummary: null,
+      lastActualPaceSecPerKm: null,
       extras: [],
     };
   });

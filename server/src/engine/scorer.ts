@@ -89,6 +89,7 @@ export function scoreSession(session: EngineSession, run: RunActual): SessionSco
     summary,
     distancePct,
     paceDeltaSec,
+    actualPaceSecPerKm: run.avgPaceSecPerKm,
     details,
   };
 }
